@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Matrix Love</title>
+<style>
+:root{color-scheme:dark;--c:#ff2d87;--bg:#06020a;--ink:#fff1f7;box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+#rain{transition:opacity 1.2s}
+#msg{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:500;line-height:1.25;color:var(--ink);opacity:0;transition:opacity 1.8s;text-shadow:0 0 14px rgba(255,45,135,.9),0 0 3px rgba(0,0,0,.8);pointer-events:none}
+#msg.on{opacity:1}
+#hint{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom,0px));left:0;right:0;text-align:center;font:14px system-ui,sans-serif;color:#c79ab4;opacity:0;transition:opacity 1s;pointer-events:none}
+#hint.on{opacity:.8}
+</style>
+</head>
+<body>
+<canvas id="rain" aria-hidden="true"></canvas>
+<canvas id="fx" aria-hidden="true"></canvas>
+<div id="msg" role="status"></div>
+<div id="hint">Нажми, чтобы повторить</div>
+<script>
+const CONFIG={
+  color:"#ff2d87",
+  bright:"#ffd6e8",
+  textColor:"#ffffff",
+  textBright:"#ffe6f2",
+  rain:3500,
+  countdown:[3,2,1],
+  countStep:2500,
+  words:["You","Are","My","Love"],
+  wordStep:2800,
+  final:"Я тебя люблю<br>Чонам",
+  N:1200
+};
+const $=s=>document.querySelector(s);
+const rain=$("#rain"),rc=rain.getContext("2d"),fx=$("#fx"),hx=fx.getContext("2d");
+const dpr=Math.min(devicePixelRatio||1,2);
+const GL="ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ0123456789ABCDEFZ";
+const rnd=()=>GL[Math.floor(Math.random()*GL.length)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let W,H,cols,drops,fsz,P=[],cur=null,pulse=false,heartMode=false,runId=0,busy=false;
+const still=matchMedia("(prefers-reduced-motion:reduce)").matches;
+
+function initP(){
+  P=[];
+  for(let i=0;i<CONFIG.N;i++)P.push({x:W/2+(Math.random()-.5)*60,y:H+20,vx:(Math.random()-.5)*500,vy:-(300+Math.random()*600),
+    tx:W/2,ty:H/2,jx:(Math.random()-.5)*4,jy:(Math.random()-.5)*4,hold:0,ch:rnd(),ct:Math.random()*.4,b:Math.random()<.15,s:0});
+}
+function size(){
+  W=innerWidth;H=innerHeight;fsz=W<500?12:14;
+  for(const c of [rain,fx]){c.width=W*dpr;c.height=H*dpr}
+  rc.setTransform(dpr,0,0,dpr,0,0);hx.setTransform(dpr,0,0,dpr,0,0);
+  cols=Math.ceil(W/16);drops=Array.from({length:cols},()=>Math.random()*-40);
+  rc.fillStyle="#06020a";rc.fillRect(0,0,W,H);
+  if(!P.length)initP();
+  if(cur)assign(cur());
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+function textPts(str,digit){
+  const c=document.createElement("canvas");c.width=W;c.height=H;
+  const x=c.getContext("2d");
+  let f=digit?Math.min(W,H)*.62:Math.min(H*.3,110);
+  x.font="900 "+f+"px Arial,sans-serif";
+  if(!digit){f*=Math.min(1,W*.86/x.measureText(str).width);x.font="900 "+f+"px Arial,sans-serif"}
+  x.textAlign="center";x.textBaseline="middle";x.fillStyle="#fff";x.fillText(str,W/2,H/2);
+  const d=x.getImageData(0,0,W,H).data,step=Math.max(3,Math.round(f/26)),pts=[];
+  for(let y=0;y<H;y+=step)for(let xx=0;xx<W;xx+=step)if(d[(y*W+xx)*4+3]>128)pts.push({x:xx,y:y});
+  return shuffle(pts);
+}
+function heartPts(){
+  const sc=Math.min(W,H*.8)/36,cx=W/2,cy=H/2-2.5*sc,pts=[];
+  for(let n=0;n<CONFIG.N;n++){
+    const a=Math.random()*Math.PI*2;
+    const hx_=16*Math.pow(Math.sin(a),3),hy_=-(13*Math.cos(a)-5*Math.cos(2*a)-2*Math.cos(3*a)-Math.cos(4*a));
+    const k=1.03-Math.pow(Math.random(),1.8)*.26;
+    pts.push({x:cx+hx_*sc*k,y:cy+hy_*sc*k});
+  }
+  return pts;
+}
+function assign(pts){
+  const M=pts.length||1;
+  P.forEach((p,i)=>{const t=pts[i%M]||{x:W/2,y:H/2};p.tx=t.x+p.jx;p.ty=t.y+p.jy});
+}
+function morph(fn,burst){
+  cur=fn;assign(fn());
+  const cx=W/2,cy=H/2;
+  P.forEach(p=>{
+    if(burst){
+      const a=Math.atan2(p.y-cy,p.x-cx)+(Math.random()-.5)*1.4,sp=250+Math.random()*600;
+      p.vx=Math.cos(a)*sp;p.vy=Math.sin(a)*sp;p.hold=.22+Math.random()*.15;
+    }else p.hold=0;
+  });
+}
+const show=(s,digit,burst)=>morph(()=>textPts(s,digit),burst);
+
+let lastRain=0,lastT=0,beatT=0;
+function rainStep(){
+  rc.fillStyle="rgba(6,2,10,.13)";rc.fillRect(0,0,W,H);
+  rc.font="16px monospace";
+  for(let i=0;i<cols;i++){
+    const y=drops[i]*16,x=i*16;
+    rc.fillStyle=CONFIG.color;rc.globalAlpha=.85;rc.fillText(rnd(),x,y-16);
+    rc.fillStyle=CONFIG.bright;rc.globalAlpha=1;rc.fillText(rnd(),x,y);
+    if(y>H&&Math.random()>.975)drops[i]=0;
+    drops[i]++;
+  }
+  rc.globalAlpha=1;
+}
+function frame(t){
+  const dt=Math.min(.033,(t-lastT)/1000||.016);lastT=t;
+  if(t-lastRain>55){lastRain=t;rainStep()}
+  hx.globalCompositeOperation="destination-out";hx.fillStyle="rgba(0,0,0,.32)";hx.fillRect(0,0,W,H);
+  hx.globalCompositeOperation="source-over";
+  hx.font=fsz+"px monospace";hx.textAlign="center";hx.textBaseline="middle";
+  beatT+=dt;const beat=pulse?1+.022*Math.sin(beatT*3.2):1,cx=W/2,cy=H/2;
+  const fr=Math.pow(.965,dt*60),dm=Math.pow(.88,dt*60);
+  let lastB=null;
+  for(const p of P){
+    if(p.hold>0){p.hold-=dt;p.vx*=fr;p.vy*=fr}
+    else{p.vx+=(p.tx-p.x)*18*dt;p.vy+=(p.ty-p.y)*18*dt;p.vx*=dm;p.vy*=dm}
+    p.x+=p.vx*dt;p.y+=p.vy*dt;
+    p.ct-=dt;if(p.ct<=0){p.ch=rnd();p.ct=.08+Math.random()*.35}
+    if(p.b!==lastB){hx.fillStyle=p.b?(heartMode?CONFIG.bright:CONFIG.textBright):(heartMode?CONFIG.color:CONFIG.textColor);lastB=p.b}
+    const x=pulse?cx+(p.x-cx)*beat:p.x,y=pulse?cy+(p.y-cy)*beat:p.y;
+    hx.fillText(p.ch,x,y);
+  }
+  requestAnimationFrame(frame);
+}
+
+async function run(){
+  const id=++runId;busy=true;pulse=false;heartMode=false;
+  const msg=$("#msg");msg.classList.remove("on");$("#hint").classList.remove("on");
+  rain.style.opacity=1;cur=null;initP();
+  const alive=()=>id===runId;
+  if(still){heartMode=true;morph(heartPts,false);P.forEach(p=>{p.x=p.tx;p.y=p.ty;p.vx=p.vy=0});showMsg();return}
+  await sleep(CONFIG.rain);if(!alive())return;
+  rain.style.opacity=.45;
+  let first=true;
+  const cd=CONFIG.countdown;
+  for(let i=0;i<cd.length;i++){
+    show(String(cd[i]),true,!first);first=false;
+    await sleep(i<cd.length-1?CONFIG.countStep:CONFIG.wordStep);if(!alive())return;
+  }
+  for(const w of CONFIG.words){
+    show(w,false,true);await sleep(CONFIG.wordStep);if(!alive())return;
+  }
+  heartMode=true;morph(heartPts,true);
+  await sleep(2200);if(!alive())return;
+  pulse=true;showMsg();
+}
+function showMsg(){
+  const sc=Math.min(W,H*.8)/36,m=$("#msg");
+  m.innerHTML=CONFIG.final;m.style.fontSize=(2.7*sc)+"px";
+  m.classList.add("on");$("#hint").classList.add("on");busy=false;
+}
+addEventListener("resize",size);
+document.body.addEventListener("click",()=>{if(!busy)run()});
+size();requestAnimationFrame(frame);run();
+</script>
+</body>
+</html>
